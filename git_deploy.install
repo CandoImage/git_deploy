@@ -6,8 +6,16 @@ function git_deploy_requirements($phase) {
     $requirements['git'] = array(
       'title' => t('git binary'),
       'value' => t('The git binary is present and executable'),
-      'severity' => function_exists('exec') && exec('git') ? REQUIREMENT_OK : REQUIREMENT_ERROR,
+      'severity' => function_exists('exec') && exec(variable_get('git_deploy_executable', 'git')) ? REQUIREMENT_OK : REQUIREMENT_ERROR,
     );
   }
   return $requirements;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function git_deploy_uninstall() {
+  variable_del('git_deploy_executable');
+  variable_del('git_repo_root');
 }
