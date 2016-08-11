@@ -198,7 +198,7 @@ function git_deploy_get_branch($commit, $directory, $remote = NULL) {
         $branch = ltrim(drupal_substr(trim($branch_with_commit), drupal_strlen($remote)), '/');
         // Make sure the branch starts is Drupal formatted.
         $branch_preg = '\d+\.x-\d+\.';
-        if (preg_match('/^(' . $branch_preg . '$/', $branch)) {
+        if (preg_match('/^' . $branch_preg . '$/', $branch)) {
           return $branch;
         }
       }
