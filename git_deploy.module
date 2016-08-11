@@ -158,7 +158,7 @@ function git_deploy_get_git_branches($directory, $reset = FALSE) {
  */
 function git_deploy_get_tag($commit, $directory) {
   $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($directory);
-  $command = $git . ' describe  --tags ' . $commit . ' 2>&1';
+  $command = $git . ' describe  --always --tags ' . $commit . ' 2>&1';
   exec($command, $tags);
   if ($tags) {
     foreach ($tags as $last_tag) {
@@ -195,7 +195,12 @@ function git_deploy_get_branch($commit, $directory, $remote = NULL) {
     foreach ($branches_with_commit as $branch_with_commit) {
       // Check if the branch is actually the one with our remote.
       if (empty($remote) || stristr($branch_with_commit, $remote) !== FALSE) {
-        return drupal_substr($branch_with_commit, drupal_strlen($remote));
+        $branch = ltrim(drupal_substr(trim($branch_with_commit), drupal_strlen($remote)), '/');
+        // Make sure the branch starts is Drupal formatted.
+        $branch_preg = '\d+\.x-\d+\.';
+        if (preg_match('/^(' . $branch_preg . '$/', $branch)) {
+          return $branch;
+        }
       }
     }
   }
