@@ -13,9 +13,30 @@ function git_deploy_requirements($phase) {
 }
 
 /**
+ * Implements hook_schema().
+ */
+function git_deploy_schema() {
+  $cache_schema = drupal_get_schema_unprocessed('system', 'cache');
+
+  $schema["cache_git_deploy"] = $cache_schema;
+  $schema["cache_git_deploy"]['description'] = "Cache table used to store git deploy infos.";
+  return $schema;
+}
+
+/**
  * Implements hook_uninstall().
  */
 function git_deploy_uninstall() {
   variable_del('git_deploy_executable');
   variable_del('git_repo_root');
+}
+
+/**
+ * Create caching table.
+ */
+function git_deploy_update_7000() {
+  if (!db_table_exists('cache_git_deploy')) {
+    $schema = git_deploy_schema();
+    db_create_table('cache_git_deploy', $schema[cache_git_deploy]);
+  }
 }

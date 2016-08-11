@@ -225,125 +225,157 @@ function git_deploy_get_datestamp($commit, $directory) {
 }
 
 /**
+ * Implements hook_flush_caches().
+ */
+function git_deploy_flush_caches() {
+  return array('cache_git_deploy');
+}
+
+/**
  * Attempts to fetch version info when subtree approach is used.
  *
  * @return bool
  *   Returns TRUE if the info could be fetched.
  */
 function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
-  static $cache;
+  static $git_cache;
+  static $project_info_cache;
+
+  // This might takes quite some time - increase timelimit.
+  set_time_limit(0);
 
   // Search in the git log to find subtrees.
   $git_dir = rtrim(variable_get('git_repo_root', DRUPAL_ROOT), '/') . '/.git';
   $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($git_dir);
   $git_remotes = git_deploy_get_git_remotes($git_dir);
 
-  // Iterate up the directory tree.
+  if (empty($git_cache)) {
+    $git_cache = array();
+  }
+  if (empty($project_info_cache)) {
+    $project_info_cache = array();
+  }
+
+  // Iterate up the tree, this way we get info about submodules of modules.
+  // And as we cache everything this shouldn't cause that much overhead.
   $subtree_directory = $directory;
-  //while ($subtree_directory) {
-    if (!isset($cache[$subtree_directory])) {
+  while (!empty($subtree_directory) && $subtree_directory != '.') {
+    if (!isset($git_cache[$subtree_directory]) && $cache = cache_get('git_info:' . $subtree_directory, 'cache_git_deploy')) {
+      $git_cache[$subtree_directory] = $cache->data;
+    }
+    if (!isset($git_cache[$subtree_directory])) {
+      $git_cache[$subtree_directory] = array(
+        'subtree_directory' => $subtree_directory,
+      );
       $command = $git . ' log --grep=' . escapeshellarg('git-subtree-dir: .*\/' . preg_quote($subtree_directory)) . ' 2>&1';
       exec($command, $subtrees);
       if ($subtrees) {
         $subtrees_text = implode("\n", $subtrees);
         // Fetch the full directory information
         if (preg_match('/git-subtree-dir:\s*(.*)$/m', $subtrees_text, $matches)) {
-          $cache[$subtree_directory]['dir'] = $matches[1];
+          $git_cache[$subtree_directory]['dir'] = $matches[1];
           // Check if this is a known remote.
           // It's good practice to add a git remote named the same as the path
           // of each subtree.
           // For now we support drupal.org repos only.
           //if (isset($git_remotes[$matches[1]]) && strpos($git_remotes[$matches[1]], '.drupal.org') !== FALSE) {
           if (isset($git_remotes[$matches[1]])) {
-            $cache[$subtree_directory]['remote'] = $matches[1];
-            $cache[$subtree_directory]['remote_uri'] = $git_remotes[$matches[1]];
+            $git_cache[$subtree_directory]['remote'] = $matches[1];
+            $git_cache[$subtree_directory]['remote_uri'] = $git_remotes[$matches[1]];
           }
         }
 
         // Fetch the commit hash of the subproject.
         if (preg_match('/git-subtree-split:\s*(.*)$/m', $subtrees_text, $matches)) {
-          $cache[$subtree_directory]['commit'] = $matches[1];
+          $git_cache[$subtree_directory]['commit'] = $matches[1];
 
           // Based on the commit we can get the date - if no squash was used.
           if ($datestamp = git_deploy_get_datestamp($matches[1], $git_dir)) {
-            $cache[$subtree_directory]['datestamp'] = $datestamp;
+            $git_cache[$subtree_directory]['datestamp'] = $datestamp;
           }
         }
+      }
+      cache_set('git_info:' . $subtree_directory, $git_cache[$subtree_directory], 'cache_git_deploy', time() + (3600 * 4));
+    }
 
-        // If a subtree was found try to extract the version information.
-        // Use remote to fetch information.
-        if (isset($cache[$subtree_directory]['remote'])) {
-          // Set project name.
-          $info['project'] = substr($cache[$subtree_directory]['remote'], strrpos($cache[$subtree_directory]['remote'], '/') + 1);
-          if (substr($info['project'], -4) == '.git') {
-            $info['project'] = substr($info['project'], 0, -4);
-          }
-
-          // Update remote - ensures we've the latest information. Operate in
-          // quite mode - if authentication fails we simply step over this.
-          // Unfortunately real "non-interactive" mode is just supported as of
-          // git >2.3 - see https://github.com/blog/1957-git-2-3-has-been-released
-          // To ensure SSH connections don't show password prompt set
-          // SSH_ASKPASS before the command and use GIT_SSH_COMMAND to SSH
-          // options.
-          $silent_command = 'GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=0 GIT_SSH_COMMAND="ssh -o PasswordAuthentication=no" ';
-          //$command = $silent_command . $git . ' remote update --quiet ' . $cache[$subtree_directory]['remote'];
-          $command = $silent_command . $git . ' fetch --quiet --tags ' . $cache[$subtree_directory]['remote'] . ' 2>&1';
-          exec($command, $remote_update);
-
-          if ($tag = git_deploy_get_tag($cache[$subtree_directory]['commit'], $git_dir)) {
-            $info['version'] = $tag;
-            return TRUE;
-          }
-          if ($branch = git_deploy_get_branch($cache[$subtree_directory]['commit'], $git_dir, $cache[$subtree_directory]['remote'])) {
-            $info['version'] = $branch . '-dev';
-            return TRUE;
-          }
+    if (!isset($project_info_cache[$subtree_directory]) && $cache = cache_get('project_info:' . $subtree_directory, 'cache_git_deploy')) {
+      $project_info_cache[$subtree_directory] = $cache->data;
+    }
+    if (!isset($project_info_cache[$subtree_directory])) {
+      // At least set an empty array so that it's clear we processed this
+      // project.
+      $project_info_cache[$subtree_directory] = array();
+      // If a subtree was found try to extract the version information.
+      // Use remote to fetch information.
+      if (isset($git_cache[$subtree_directory]['remote'])) {
+        // Set project name.
+        $project = substr($git_cache[$subtree_directory]['remote'], strrpos($git_cache[$subtree_directory]['remote'], '/') + 1);
+        if (substr($project, -4) == '.git') {
+          $project = substr($info['project'], 0, -4);
         }
-        else {
-          // If no remote is given try to fetch info from d.o.
-          // See if there's such a module on d.o. Use modified header to
-          $options['headers'] = array(
-            'If-Modified-Since' => date(DATE_COOKIE, time() + 3600),
-          );
-          $url = _update_get_fetch_url_base((array) $file);
-          $url .= '/' . $file->name . '/' . DRUPAL_CORE_COMPATIBILITY;
-          // Send request.
-          $result = drupal_http_request($url, $options);
-          if ($result->code == 200 && stripos($result->data, '<error>') === FALSE) {
-            // Module exists. Try to fetch commit information from git web on
-            // d.o.
-            $info['version'] = $file->name;
-            $git_web_result = drupal_http_request('http://cgit.drupalcode.org/' . $file->name . '/commit/?id=b3a7c79d9d6fe70d57a0eed81f12f51bc0bd68eb');
+        $project_info_cache[$subtree_directory]['project'] = $project;
+
+        // Update remote - ensures we've the latest information. Operate in
+        // quite mode - if authentication fails we simply step over this.
+        // Unfortunately real "non-interactive" mode is just supported as of
+        // git >2.3 - see https://github.com/blog/1957-git-2-3-has-been-released
+        // To ensure SSH connections don't show password prompt set
+        // SSH_ASKPASS before the command and use GIT_SSH_COMMAND to SSH
+        // options.
+        $silent_command = 'GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=0 GIT_SSH_COMMAND="ssh -o PasswordAuthentication=no" ';
+        //$command = $silent_command . $git . ' remote update --quiet ' . $git_cache[$subtree_directory]['remote'];
+        $command = $silent_command . $git . ' fetch --quiet --tags ' . $git_cache[$subtree_directory]['remote'] . ' 2>&1';
+        exec($command, $remote_update);
+
+        if ($tag = git_deploy_get_tag($git_cache[$subtree_directory]['commit'], $git_dir)) {
+          $project_info_cache[$subtree_directory]['version'] = $tag;
+        }
+        if (!$tag && $branch = git_deploy_get_branch($git_cache[$subtree_directory]['commit'], $git_dir, $git_cache[$subtree_directory]['remote'])) {
+          $project_info_cache[$subtree_directory]['version'] = $branch . '-dev';
+        }
+      }
+      else {
+        // If no remote is given try to fetch info from d.o.
+        // See if there's such a module on d.o. Use modified header to
+        $options['headers'] = array(
+          'If-Modified-Since' => date(DATE_COOKIE, time() + 3600),
+        );
+        $url = _update_get_fetch_url_base((array) $file);
+        $url .= '/' . $file->name . '/' . DRUPAL_CORE_COMPATIBILITY;
+        // Send request.
+        $result = drupal_http_request($url, $options);
+        if ($result->code == 200 && stripos($result->data, '<error>') === FALSE) {
+          // Module exists. Try to fetch commit information from git web on
+          // d.o.
+          $project_info_cache[$subtree_directory]['project'] = $file->name;
+          if (!empty($git_cache[$subtree_directory]['commit'])) {
+            $git_web_result = drupal_http_request('http://cgit.drupalcode.org/' . $file->name . '/commit/?id=' . $git_cache[$subtree_directory]['commit']);
             if ($git_web_result->code == 200) {
               // Check for tag info
               if (preg_match('/<a[^\\>]*class=(?:\\\'|")tag-deco.*?\\>([^\\<]*)?\\</i', $git_web_result->data, $matches)) {
                 // Version info.
-                $info['version'] = $matches[1];
-                return TRUE;
+                $project_info_cache[$subtree_directory]['version'] = $matches[1];
               }
               // Check for branch info
               elseif (preg_match('/<a[^\\>]*class=(?:\\\'|")branch-deco.*?\\>([^\\<]*)?\\</i', $git_web_result->data, $matches)) {
                 // Version info.
-                $info['version'] = $matches[1] . '-dev';
-                return TRUE;
+                $project_info_cache[$subtree_directory]['version'] = $matches[1] . '-dev';
               }
             }
           }
         }
       }
+      // Store the results of all the evaluation in the cache.
+      cache_set('project_info:' . $subtree_directory, $project_info_cache[$subtree_directory], 'cache_git_deploy', time() + (3600 * 4) - 300);
     }
-    //$subtree_directory = dirname($subtree_directory);
-  //}
+    if (!empty($project_info_cache[$subtree_directory]['project'])) {
+      $info['project'] = $project_info_cache[$subtree_directory]['project'];
+    }
+    if (!empty($project_info_cache[$subtree_directory]['version'])) {
+      $info['version'] = $project_info_cache[$subtree_directory]['version'];
+      return TRUE;
+    }
+    $subtree_directory = dirname($subtree_directory);
+  }
   return FALSE;
-}
-
-/**
- * Attempts to fetch version info when submodule approach is used.
- *
- * @return bool
- *   Returns TRUE if the info could be fetched.
- */
-function git_depploy_fetch_submodule_info(&$info, $file, $type, $directory) {
-
 }
