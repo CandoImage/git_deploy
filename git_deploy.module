@@ -197,7 +197,7 @@ function git_deploy_get_branch($commit, $directory, $remote = NULL) {
       if (empty($remote) || stristr($branch_with_commit, $remote) !== FALSE) {
         $branch = ltrim(drupal_substr(trim($branch_with_commit), drupal_strlen($remote)), '/');
         // Make sure the branch starts is Drupal formatted.
-        $branch_preg = '\d+\.x-\d+\.';
+        $branch_preg = '\d+\.x-\d+\.x';
         if (preg_match('/^' . $branch_preg . '$/', $branch)) {
           return $branch;
         }
@@ -310,6 +310,9 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
       // At least set an empty array so that it's clear we processed this
       // project.
       $project_info_cache[$subtree_directory] = array();
+      if (!empty($git_cache[$subtree_directory]['datestamp'])) {
+        $project_info_cache[$subtree_directory]['datestamp'] = $git_cache[$subtree_directory]['datestamp'];
+      }
       // If a subtree was found try to extract the version information.
       // Use remote to fetch information.
       if (isset($git_cache[$subtree_directory]['remote'])) {
