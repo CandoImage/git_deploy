@@ -376,6 +376,9 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
       // Store the results of all the evaluation in the cache.
       cache_set('project_info:' . $subtree_directory, $project_info_cache[$subtree_directory], 'cache_git_deploy', time() + (3600 * 4) - 300);
     }
+    if (!empty($project_info_cache[$subtree_directory]['datestamp'])) {
+      $info['datestamp'] = $project_info_cache[$subtree_directory]['datestamp'];
+    }
     if (!empty($project_info_cache[$subtree_directory]['project'])) {
       $info['project'] = $project_info_cache[$subtree_directory]['project'];
     }
