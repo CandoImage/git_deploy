@@ -300,11 +300,16 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
           }
         }
       }
-      cache_set('git_info:' . $subtree_directory, $git_cache[$subtree_directory], 'cache_git_deploy', time() + (3600 * 4));
+      cache_set('git_info:' . $subtree_directory, $git_cache[$subtree_directory], 'cache_git_deploy');
     }
 
     if (!isset($project_info_cache[$subtree_directory]) && $cache = cache_get('project_info:' . $subtree_directory, 'cache_git_deploy')) {
       $project_info_cache[$subtree_directory] = $cache->data;
+      // Check how old the project infos are. If they are older than a day
+      // unset the cache and trigger a re-fetch this way.
+      if (empty($project_info_cache[$subtree_directory]['last_fetched']) || ($project_info_cache[$subtree_directory]['last_fetched'] - time()) / 3600 >= 24) {
+        unset($project_info_cache[$subtree_directory]);
+      }
     }
     if (!isset($project_info_cache[$subtree_directory])) {
       // At least set an empty array so that it's clear we processed this
@@ -374,7 +379,8 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
         }
       }
       // Store the results of all the evaluation in the cache.
-      cache_set('project_info:' . $subtree_directory, $project_info_cache[$subtree_directory], 'cache_git_deploy', time() + (3600 * 4) - 300);
+      $project_info_cache[$subtree_directory]['last_fetched'] = time();
+      cache_set('project_info:' . $subtree_directory, $project_info_cache[$subtree_directory], 'cache_git_deploy');
     }
     if (!empty($project_info_cache[$subtree_directory]['datestamp'])) {
       $info['datestamp'] = $project_info_cache[$subtree_directory]['datestamp'];
@@ -389,4 +395,72 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
     $subtree_directory = dirname($subtree_directory);
   }
   return FALSE;
+}
+
+/**
+ * Implements hook_cron_queue_info().
+ */
+function git_deploy_cron_queue_info() {
+  $queues['git_deploy_update_version_info'] = array(
+    'worker callback' => 'git_deploy_update_version_info_worker',
+    'time' => 60,
+  );
+  return $queues;
+}
+
+/**
+ * Implements hook_cron().
+ */
+function git_deploy_cron() {
+  /** @var DrupalReliableQueueInterface $queue */
+  $queue = DrupalQueue::get('git_deploy_update_version_info');
+  // If there are no more items left update the list again. Also update the list
+  // if the last updated was more than 24 hours ago.
+  if (!$queue->numberOfItems() || (variable_get('git_repo_last_queue_refresh', 0) - time()) / 3600 >= 24) {
+    $queue->deleteQueue();
+    $queue = DrupalQueue::get('git_deploy_update_version_info');
+    // Get all the modules.
+    $modules = module_list();
+    foreach ($modules as $module) {
+      $queue->createItem($module);
+    }
+    variable_set('git_repo_last_queue_refresh', time());
+  }
+}
+
+/**
+ * Process scheduled version update.
+ */
+function git_deploy_update_version_info_worker($module_name) {
+  // Re-use our hook to re-fill the cache.
+  // Simulate invocation from _system_rebuild_module_data().
+  $defaults = array(
+    'dependencies' => array(),
+    'description' => '',
+    'package' => 'Other',
+    'version' => NULL,
+    'php' => DRUPAL_MINIMUM_PHP,
+    'files' => array(),
+    'bootstrap' => 0,
+    'name' => $module_name,
+  );
+  $uri = drupal_get_path('module', $module_name) . '/' . $module_name . '.module';
+  $module = (object) array(
+    'name' => $module_name,
+    'filename' => $uri,
+    'uri' => $uri,
+  );
+
+  $info_file = dirname($module->uri) . '/' . $module->name . '.info';
+  if (!file_exists($info_file)) {
+    return TRUE;
+  }
+  // Look for the info file.
+  $module->info = drupal_parse_info_file($info_file);
+  $module->info['mtime'] = filemtime($info_file);
+
+  // Merge in defaults and save.
+  $module->info = $module->info + $defaults;
+
+  git_deploy_system_info_alter($module->info, $module, 'module');
 }

@@ -29,6 +29,7 @@ function git_deploy_schema() {
 function git_deploy_uninstall() {
   variable_del('git_deploy_executable');
   variable_del('git_repo_root');
+  variable_del('git_repo_last_queue_refresh');
 }
 
 /**
