@@ -219,12 +219,18 @@ function git_deploy_get_branch($commit, $directory, $remote = NULL) {
  *   FALSE if no datestamp was found.
  */
 function git_deploy_get_datestamp($commit, $directory) {
+  static $commits;
+
+  if (isset($commits[$commit])) {
+    return $commits[$commit];
+  }
   $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($directory);
   // Based on the commit we can get the date.
   $command = $git . ' show --pretty=format:%at ' . $commit;
   exec($command, $datestamp);
   if ($datestamp && is_numeric($datestamp[0])) {
-    return $datestamp[0];
+    $commits[$commit] = $datestamp[0];
+    return $commits[$commit];
   }
   return FALSE;
 }
@@ -297,6 +303,21 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
           // Based on the commit we can get the date - if no squash was used.
           if ($datestamp = git_deploy_get_datestamp($matches[1], $git_dir)) {
             $git_cache[$subtree_directory]['datestamp'] = $datestamp;
+          }
+        }
+        // Try to see if there's a newer pull / merge.
+        $subtree_pull_log_command = $git . ' log --merges -- ' . escapeshellarg('*/' . $subtree_directory . '/*') . ' 2>&1';
+        exec($subtree_pull_log_command, $subtree_pulls);
+        if ($subtree_pulls) {
+          $subtree_pull_text = implode("\n", $subtree_pulls);
+          // Try to fetch the related commit:
+          if (preg_match('/(git-subtree-split|Merge commit)[:\s\']*([^\']*)[\s\']*$/im', $subtree_pull_text, $matches)) {
+            $git_cache[$subtree_directory]['commit'] = $matches[2];
+
+            // Based on the commit we can get the date - if no squash was used.
+            if ($datestamp = git_deploy_get_datestamp($matches[2], $git_dir)) {
+              $git_cache[$subtree_directory]['datestamp'] = $datestamp;
+            }
           }
         }
       }
