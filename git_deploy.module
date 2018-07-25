@@ -267,14 +267,15 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
     $project_info_cache = array();
   }
 
+  $force = FALSE;
   // Iterate up the tree, this way we get info about submodules of modules.
   // And as we cache everything this shouldn't cause that much overhead.
   $subtree_directory = $directory;
   while (!empty($subtree_directory) && $subtree_directory != '.') {
-    if (!isset($git_cache[$subtree_directory]) && $cache = cache_get('git_info:' . $subtree_directory, 'cache_git_deploy')) {
+    if (!$force && !isset($git_cache[$subtree_directory]) && $cache = cache_get('git_info:' . $subtree_directory, 'cache_git_deploy')) {
       $git_cache[$subtree_directory] = $cache->data;
     }
-    $refresh = FALSE;
+    $refresh = $force;
     if (!isset($git_cache[$subtree_directory])) {
       $git_cache[$subtree_directory] = array(
         'subtree_directory' => $subtree_directory,
@@ -334,7 +335,7 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
         unset($project_info_cache[$subtree_directory]);
       }
     }
-    if (!isset($project_info_cache[$subtree_directory])) {
+    if (isset($git_cache[$subtree_directory]['remote']) && !isset($project_info_cache[$subtree_directory])) {
       // At least set an empty array so that it's clear we processed this
       // project.
       $project_info_cache[$subtree_directory] = array();
@@ -360,7 +361,7 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
         // options.
         $silent_command = 'GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=0 GIT_SSH_COMMAND="ssh -o PasswordAuthentication=no" ';
         //$command = $silent_command . $git . ' remote update --quiet ' . $git_cache[$subtree_directory]['remote'];
-        $command = $silent_command . $git . ' fetch --quiet --tags ' . $git_cache[$subtree_directory]['remote'] . ' 2>&1';
+        $command = $silent_command . $git . ' fetch --quiet --tags ' . $git_cache[$subtree_directory]['remote_uri'] . ' 2>&1';
         exec($command, $remote_update);
 
         if ($tag = git_deploy_get_tag($git_cache[$subtree_directory]['commit'], $git_dir)) {
