@@ -274,6 +274,7 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
     if (!isset($git_cache[$subtree_directory]) && $cache = cache_get('git_info:' . $subtree_directory, 'cache_git_deploy')) {
       $git_cache[$subtree_directory] = $cache->data;
     }
+    $refresh = FALSE;
     if (!isset($git_cache[$subtree_directory])) {
       $git_cache[$subtree_directory] = array(
         'subtree_directory' => $subtree_directory,
@@ -322,13 +323,14 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
         }
       }
       cache_set('git_info:' . $subtree_directory, $git_cache[$subtree_directory], 'cache_git_deploy');
+      $refresh = TRUE;
     }
 
     if (!isset($project_info_cache[$subtree_directory]) && $cache = cache_get('project_info:' . $subtree_directory, 'cache_git_deploy')) {
       $project_info_cache[$subtree_directory] = $cache->data;
       // Check how old the project infos are. If they are older than a day
       // unset the cache and trigger a re-fetch this way.
-      if (empty($project_info_cache[$subtree_directory]['last_fetched']) || ($project_info_cache[$subtree_directory]['last_fetched'] - time()) / 3600 >= 24) {
+      if ($refresh || empty($project_info_cache[$subtree_directory]['last_fetched']) || ($project_info_cache[$subtree_directory]['last_fetched'] - time()) / 3600 >= 24) {
         unset($project_info_cache[$subtree_directory]);
       }
     }
@@ -385,12 +387,12 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $directory) {
           if (!empty($git_cache[$subtree_directory]['commit'])) {
             $git_web_result = drupal_http_request('http://cgit.drupalcode.org/' . $file->name . '/commit/?id=' . $git_cache[$subtree_directory]['commit']);
             if ($git_web_result->code == 200) {
-              // Check for tag info
+              // Check for tag info.
               if (preg_match('/<a[^\\>]*class=(?:\\\'|")tag-deco.*?\\>([^\\<]*)?\\</i', $git_web_result->data, $matches)) {
                 // Version info.
                 $project_info_cache[$subtree_directory]['version'] = $matches[1];
               }
-              // Check for branch info
+              // Check for branch info.
               elseif (preg_match('/<a[^\\>]*class=(?:\\\'|")branch-deco.*?\\>([^\\<]*)?\\</i', $git_web_result->data, $matches)) {
                 // Version info.
                 $project_info_cache[$subtree_directory]['version'] = $matches[1] . '-dev';
