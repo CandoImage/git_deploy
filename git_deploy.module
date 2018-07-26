@@ -211,8 +211,8 @@ function git_deploy_get_branch($commit, $directory, $remote = NULL) {
         $branch = ltrim(drupal_substr(trim($branch_with_commit), drupal_strlen($remote)), '/');
         // Make sure the branch starts is Drupal formatted.
         $branch_preg = '\d+\.x-\d+\.x';
-        if (preg_match('/^' . $branch_preg . '$/', $branch)) {
-          return $branch;
+        if (preg_match('/(' . $branch_preg . ')/', $branch, $matches)) {
+          return $matches[1];
         }
       }
     }
@@ -256,6 +256,22 @@ function git_deploy_flush_caches() {
 }
 
 /**
+ * Gets the executable.
+ *
+ * @param bool $silent
+ *
+ * @return string
+ */
+function git_deploy_get_git_command($silent = FALSE) {
+  $git_dir = rtrim(variable_get('git_repo_root', DRUPAL_ROOT), '/') . '/.git';
+  $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($git_dir);
+  if ($silent) {
+    $git = 'GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=0 GIT_SSH_COMMAND="ssh -o PasswordAuthentication=no" ' . $git;
+  }
+  return $git;
+}
+
+/**
  * Attempts to fetch version info when subtree approach is used.
  *
  * @return bool
@@ -270,7 +286,7 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
 
   // Search in the git log to find subtrees.
   $git_dir = rtrim(variable_get('git_repo_root', DRUPAL_ROOT), '/') . '/.git';
-  $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($git_dir);
+  $git = git_deploy_get_git_command();
   $git_remotes = git_deploy_get_git_remotes($git_dir);
 
   if (empty($git_cache)) {
@@ -368,8 +384,10 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
       // SSH_ASKPASS before the command and use GIT_SSH_COMMAND to SSH
       // options.
       $silent_command = 'GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=0 GIT_SSH_COMMAND="ssh -o PasswordAuthentication=no" ';
-      //$command = $silent_command . $git . ' remote update --quiet ' . $git_cache[$subtree_directory]['remote'];
-      $command = $silent_command . $git . ' fetch --quiet --tags ' . $git_cache[$subtree_directory]['remote_uri'] . ' 2>&1';
+      #$command = $silent_command . $git . ' remote update --quiet ' . $git_cache[$subtree_directory]['remote'];
+      $command = $silent_command . $git . ' fetch --quiet' . $git_cache[$subtree_directory]['remote'] . ' 2>&1';
+      exec($command, $remote_update);
+      $command = $silent_command . $git . ' fetch --quiet --tags ' . $git_cache[$subtree_directory]['remote'] . ' 2>&1';
       exec($command, $remote_update);
 
       if ($tag = git_deploy_get_tag($git_cache[$subtree_directory]['commit'], $git_dir)) {
@@ -377,6 +395,66 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
       }
       if (!$tag && $branch = git_deploy_get_branch($git_cache[$subtree_directory]['commit'], $git_dir, $git_cache[$subtree_directory]['remote'])) {
         $project_info_cache[$subtree_directory]['version'] = $branch . '-dev';
+      }
+      // Still nothing - and a cando remote. Try to figure out last merge from
+      // drupal org and base version on that.
+      if (empty($project_info_cache[$subtree_directory]['version'])) {
+        $commits = git_deploy_get_remote_commits($git_cache[$subtree_directory]);
+
+        // Try to find the commits in the remote branch refs.
+        if ($remote_refs = git_deploy_get_drupal_remote_refs($git_cache[$subtree_directory])) {
+          $version_found = FALSE;
+          foreach ($remote_refs as $remote_ref) {
+            foreach ($commits as $commit) {
+              if (stripos($remote_ref, $commit) !== FALSE) {
+                $version_found = $remote_ref;
+                continue;
+              }
+            }
+          }
+          if ($version_found) {
+            if (stripos($version_found, 'heads') !== FALSE) {
+              $project_info_cache[$subtree_directory]['version'] = preg_replace('/^.+\/heads\/(.+)$/', '$1-dev', $version_found);
+            }
+            elseif (stripos($version_found, 'tags') !== FALSE) {
+              $project_info_cache[$subtree_directory]['version'] = preg_replace('/^.+\/tags\/(.+)$/', '$1', $version_found);
+            }
+          }
+        }
+        // Still needs fiddling.
+        if (empty($project_info_cache[$subtree_directory]['version'])) {
+          // We are abusing the drupalcode server to check if a commit exists
+          // upstream.
+          $version_branches = array(
+            '7.x-1.x',
+            '7.x-2.x',
+            '7.x-3.x',
+            '7.x-4.x',
+            '7.x-5.x',
+          );
+          // By iterating over the version branches we can get an idea where the
+          // commit is located.
+          foreach ($version_branches as $version_branch) {
+            //http://cgit.drupalcode.org/adminimal_admin_menu/atom/?h=7.x-1.x
+            //$url = _update_get_fetch_url_base((array) $file);
+            //$url .= '/' . $file->name . '/' . DRUPAL_CORE_COMPATIBILITY;
+            // https://cgit.drupalcode.org/redirect/commit/?id=add3c695f613fbeec23b7259e59936f60a6b6da6
+            //$url = 'https://cgit.drupalcode.org/' . $file->name . '/commit/?id=' . $commit;
+            $url = 'http://cgit.drupalcode.org/' . $file->name . '/atom/?h=' . $version_branch;
+            // Send request.
+            $result = drupal_http_request($url);
+            if ($result->code == 200 && stripos($result->data, '<error>') === FALSE) {
+              // Now try to find the commits.
+              foreach ($commits as $commit) {
+                if (stripos($result->data, $commit) !== FALSE) {
+                  // Can we really rely on the first find?
+                  $project_info_cache[$subtree_directory]['version'] = $branch . '-dev';
+                  continue(2);
+                }
+              }
+            }
+          }
+        }
       }
     }
     else {
@@ -425,6 +503,20 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
     $info['version'] = $project_info_cache[$subtree_directory]['version'];
   }
   return !empty($info['version']);
+}
+
+function git_deploy_get_remote_commits($git_info) {
+  $command = git_deploy_get_git_command(TRUE) . ' log --all --format=format:%H --max-count=10 --glob=refs/' . $git_info['remote'] . ' -- ' . basename($git_info['remote']) . '* 2>&1';
+  exec($command, $commits);
+  return $commits;
+}
+
+function git_deploy_get_drupal_remote_refs($git_info) {
+  // Try to find the commits in the remote branch refs.
+  $drupal_git_remote = 'https://git.drupal.org/project/' . basename($git_info['remote_uri']);
+  $command = git_deploy_get_git_command(TRUE) . ' ls-remote ' . $drupal_git_remote . ' 2>&1';
+  exec($command, $remote_refs);
+  return $remote_refs;
 }
 
 /**
