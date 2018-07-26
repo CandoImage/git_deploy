@@ -266,6 +266,11 @@ function git_deploy_get_git_command($silent = FALSE) {
   $git_dir = rtrim(variable_get('git_repo_root', DRUPAL_ROOT), '/') . '/.git';
   $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($git_dir);
   if ($silent) {
+    // Unfortunately real "non-interactive" mode is just supported as of
+    // git >2.3 - see https://github.com/blog/1957-git-2-3-has-been-released
+    // To ensure SSH connections don't show password prompt set
+    // SSH_ASKPASS before the command and use GIT_SSH_COMMAND to SSH
+    // options.
     $git = 'GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=0 GIT_SSH_COMMAND="ssh -o PasswordAuthentication=no" ' . $git;
   }
   return $git;
@@ -378,17 +383,7 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
 
       // Update remote - ensures we've the latest information. Operate in
       // quite mode - if authentication fails we simply step over this.
-      // Unfortunately real "non-interactive" mode is just supported as of
-      // git >2.3 - see https://github.com/blog/1957-git-2-3-has-been-released
-      // To ensure SSH connections don't show password prompt set
-      // SSH_ASKPASS before the command and use GIT_SSH_COMMAND to SSH
-      // options.
-      $silent_command = 'GIT_TERMINAL_PROMPT=0 SSH_ASKPASS=0 GIT_SSH_COMMAND="ssh -o PasswordAuthentication=no" ';
-      #$command = $silent_command . $git . ' remote update --quiet ' . $git_cache[$subtree_directory]['remote'];
-      $command = $silent_command . $git . ' fetch --quiet' . $git_cache[$subtree_directory]['remote'] . ' 2>&1';
-      exec($command, $remote_update);
-      $command = $silent_command . $git . ' fetch --quiet --tags ' . $git_cache[$subtree_directory]['remote'] . ' 2>&1';
-      exec($command, $remote_update);
+      git_deploy_get_remote_update($git_cache[$subtree_directory]);
 
       if ($tag = git_deploy_get_tag($git_cache[$subtree_directory]['commit'], $git_dir)) {
         $project_info_cache[$subtree_directory]['version'] = $tag;
@@ -505,8 +500,9 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
   return !empty($info['version']);
 }
 
-function git_deploy_get_remote_commits($git_info) {
-  $command = git_deploy_get_git_command(TRUE) . ' log --all --format=format:%H --max-count=10 --glob=refs/' . $git_info['remote'] . ' -- ' . basename($git_info['remote']) . '* 2>&1';
+function git_deploy_get_remote_commits($git_info, $limit = 50) {
+  //git log --all  --max-count=50 --full-history  --glob=refs/drupal/sites/all/modules/contrib/admin_menu -- admin_menu*
+  $command = git_deploy_get_git_command(TRUE) . ' log --all --full-history --format=format:%H --max-count=' . (int) $limit . ' --glob=refs/' . $git_info['remote'] . ' -- ' . basename($git_info['remote']) . '* 2>&1';
   exec($command, $commits);
   return $commits;
 }
@@ -517,6 +513,14 @@ function git_deploy_get_drupal_remote_refs($git_info) {
   $command = git_deploy_get_git_command(TRUE) . ' ls-remote ' . $drupal_git_remote . ' 2>&1';
   exec($command, $remote_refs);
   return $remote_refs;
+}
+
+function git_deploy_get_remote_update($git_info) {
+  $command = git_deploy_get_git_command(TRUE) . ' fetch --quiet' . $git_info['remote'] . ' 2>&1';
+  exec($command);
+  $command = git_deploy_get_git_command(TRUE) . ' fetch --quiet --tags ' . $git_info['remote'] . ' 2>&1';
+  exec($command);
+  return TRUE;
 }
 
 /**
