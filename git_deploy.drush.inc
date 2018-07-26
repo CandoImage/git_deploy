@@ -21,55 +21,40 @@ function git_deploy_drush_command() {
 }
 
 function drush_git_deploy_fetch($module = NULL) {
-  drush_log(dt('Recreating queue.'), 'success');
-  $queue = DrupalQueue::get('git_deploy_update_version_info');
-  $queue->deleteQueue();
-  // Get all the modules.
   $modules = system_list('module_enabled');
   $themes = system_list('theme');
+  drush_log(dt('Processing batch with !items items.', array('!items' => count($modules) + count($themes))), 'success');
+
+  // Set the batch operations.
+  $batch = array(
+    'title' => dt('Processing module / theme'),
+    'operations' => array(),
+  );
+
   if (empty($module)) {
     foreach ($modules as $module) {
-      $queue->createItem($module);
+      $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($module));
     }
     foreach ($themes as $theme) {
-      $queue->createItem($theme);
+      $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($theme));
     }
   }
   else {
     if (isset($modules[$module])) {
       drush_log(dt('Found module @module - added to queue.', array('@module' => $module)), 'success');
-      $queue->createItem($modules[$module]);
+      $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($modules[$module]));
     }
     if (isset($themes[$module])) {
       drush_log(dt('Found theme @module - added to queue.', array('@module' => $module)), 'success');
-      $queue->createItem($themes[$module]);
+      $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($themes[$module]));
     }
   }
-
-  /** @var DrupalQueueInterface $queue */
-  $queue = DrupalQueue::get('git_deploy_update_version_info');
-  if (($queue_items = $queue->numberOfItems())) {
-    drush_log(dt('Processing batch with !items items.', array('!items' => $queue_items)), 'success');
-    // Set the batch operations.
-    $batch = array(
-      'title' => dt('Processing module / theme'),
-      'operations' => array(),
-    );
-    for ($i = 1; $i <= $queue_items; $i++) {
-      $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array(1));
-    }
-    batch_set($batch);
-    drush_backend_batch_process();
-  }
+  batch_set($batch);
+  drush_backend_batch_process();
 }
 
-function drush_git_deploy_fetch_process_item() {
-  /** @var DrupalQueueInterface $queue */
-  $queue = DrupalQueue::get('git_deploy_update_version_info');
-  if ($item = $queue->claimItem()) {
-    drush_log(dt('Processing: @item', array('@item' => $item->data->name)), 'success');
-    $module = git_deploy_update_version_info_worker($item->data);
-    drush_log(dt('        detected version: @version', array('@version' => $module->info['version'])), 'success');
-    $queue->deleteItem($item);
-  }
+function drush_git_deploy_fetch_process_item($item) {
+  drush_log(dt('Processing: @item', array('@item' => $item->name)), 'success');
+  $module = git_deploy_update_version_info_worker($item);
+  drush_log(dt('        detected version: @version', array('@version' => $module->info['version'])), 'success');
 }
