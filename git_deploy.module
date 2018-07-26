@@ -118,8 +118,11 @@ function git_deploy_fetch_git_repo_info(&$info, $file, $type, $directory, $force
   return $tag_found;
 }
 
-function git_deploy_get_git_remotes($directory, $reset = FALSE) {
+function git_deploy_get_git_remotes($directory = NULL, $reset = FALSE) {
   static $cache;
+  if (empty($directory)) {
+    $directory = rtrim(variable_get('git_repo_root', DRUPAL_ROOT), '/') . '/.git';
+  }
   if ($reset || !isset($cache[$directory])) {
     $cache[$directory] = array();
     $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($directory);
@@ -140,6 +143,9 @@ function git_deploy_get_git_remotes($directory, $reset = FALSE) {
 
 function git_deploy_get_git_branches($directory, $reset = FALSE) {
   static $cache;
+  if (empty($directory)) {
+    $directory = rtrim(variable_get('git_repo_root', DRUPAL_ROOT), '/') . '/.git';
+  }
   if ($reset || !isset($cache[$directory])) {
     $cache[$directory] = array();
     $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($directory);
@@ -169,7 +175,10 @@ function git_deploy_get_git_branches($directory, $reset = FALSE) {
  * @return bool|string
  *   FALSE if no tag was found.
  */
-function git_deploy_get_tag($commit, $directory) {
+function git_deploy_get_tag($commit, $directory = NULL) {
+  if (empty($directory)) {
+    $directory = rtrim(variable_get('git_repo_root', DRUPAL_ROOT), '/') . '/.git';
+  }
   $git = variable_get('git_deploy_executable', 'git') . ' --git-dir=' . escapeshellarg($directory);
   $command = $git . ' describe  --always --tags ' . $commit . ' 2>&1';
   exec($command, $tags);
@@ -213,6 +222,9 @@ function git_deploy_get_branch($commit, $directory, $remote = NULL) {
         $branch_preg = '\d+\.x-\d+\.x';
         if (preg_match('/(' . $branch_preg . ')/', $branch, $matches)) {
           return $matches[1];
+        }
+        if ($branch == 'master') {
+          return '7.x-1.x';
         }
       }
     }
@@ -385,7 +397,7 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
       // quite mode - if authentication fails we simply step over this.
       git_deploy_get_remote_update($git_cache[$subtree_directory]);
 
-      if ($tag = git_deploy_get_tag($git_cache[$subtree_directory]['commit'], $git_dir)) {
+      if ($tag = git_deploy_get_tag($git_cache[$subtree_directory]['commit'])) {
         $project_info_cache[$subtree_directory]['version'] = $tag;
       }
       if (!$tag && $branch = git_deploy_get_branch($git_cache[$subtree_directory]['commit'], $git_dir, $git_cache[$subtree_directory]['remote'])) {
@@ -399,10 +411,12 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
         // Try to find the commits in the remote branch refs.
         if ($remote_refs = git_deploy_get_drupal_remote_refs($git_cache[$subtree_directory])) {
           $version_found = FALSE;
+          $commit_found = FALSE;
           foreach ($remote_refs as $remote_ref) {
             foreach ($commits as $commit) {
               if (stripos($remote_ref, $commit) !== FALSE) {
                 $version_found = $remote_ref;
+                $commit_found = $commit;
                 continue;
               }
             }
@@ -413,6 +427,10 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
             }
             elseif (stripos($version_found, 'tags') !== FALSE) {
               $project_info_cache[$subtree_directory]['version'] = preg_replace('/^.+\/tags\/(.+)$/', '$1', $version_found);
+            }
+            // Based on the commit we can get the date.
+            if ($datestamp = git_deploy_get_datestamp($matches[1], $git_dir)) {
+              $git_cache[$subtree_directory]['datestamp'] = $datestamp;
             }
           }
         }
@@ -442,8 +460,15 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
               // Now try to find the commits.
               foreach ($commits as $commit) {
                 if (stripos($result->data, $commit) !== FALSE) {
+                  if ($branch == 'master') {
+                    $branch = '7.x-1.x';
+                  }
                   // Can we really rely on the first find?
                   $project_info_cache[$subtree_directory]['version'] = $branch . '-dev';
+//                  // Based on the commit we can get the date.
+//                  if ($datestamp = git_deploy_get_datestamp($matches[1], $git_dir)) {
+//                    $git_cache[$subtree_directory]['datestamp'] = $datestamp;
+//                  }
                   continue(2);
                 }
               }
