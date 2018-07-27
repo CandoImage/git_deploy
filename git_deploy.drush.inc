@@ -23,7 +23,6 @@ function git_deploy_drush_command() {
 function drush_git_deploy_fetch($module = NULL) {
   $modules = system_list('module_enabled');
   $themes = system_list('theme');
-  drush_log(dt('Processing batch with !items items.', array('!items' => count($modules) + count($themes))), 'success');
 
   // Set the batch operations.
   $batch = array(
@@ -49,6 +48,7 @@ function drush_git_deploy_fetch($module = NULL) {
       $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($themes[$module]));
     }
   }
+  drush_log(dt('Processing batch with !items items.', array('!items' => count($batch['operations']))), 'success');
   batch_set($batch);
   drush_backend_batch_process();
 }

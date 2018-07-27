@@ -243,8 +243,12 @@ function git_deploy_get_branch($commit, $directory, $remote = NULL) {
  * @return bool|string
  *   FALSE if no datestamp was found.
  */
-function git_deploy_get_datestamp($commit, $directory) {
+function git_deploy_get_datestamp($commit, $directory = NULL) {
   static $commits;
+
+  if (empty($directory)) {
+    $directory = rtrim(variable_get('git_repo_root', DRUPAL_ROOT), '/') . '/.git';
+  }
 
   if (isset($commits[$commit])) {
     return $commits[$commit];
@@ -424,12 +428,15 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
           if ($version_found) {
             if (stripos($version_found, 'heads') !== FALSE) {
               $project_info_cache[$subtree_directory]['version'] = preg_replace('/^.+\/heads\/(.+)$/', '$1-dev', $version_found);
+              if ($project_info_cache[$subtree_directory]['version'] == 'master') {
+                $project_info_cache[$subtree_directory]['version'] = '7.x-1.x';
+              }
             }
             elseif (stripos($version_found, 'tags') !== FALSE) {
               $project_info_cache[$subtree_directory]['version'] = preg_replace('/^.+\/tags\/(.+)$/', '$1', $version_found);
             }
             // Based on the commit we can get the date.
-            if ($datestamp = git_deploy_get_datestamp($matches[1], $git_dir)) {
+            if ($datestamp = git_deploy_get_datestamp($commit_found)) {
               $git_cache[$subtree_directory]['datestamp'] = $datestamp;
             }
           }
@@ -525,7 +532,7 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
   return !empty($info['version']);
 }
 
-function git_deploy_get_remote_commits($git_info, $limit = 50) {
+function git_deploy_get_remote_commits($git_info, $limit = 500) {
   //git log --all  --max-count=50 --full-history  --glob=refs/drupal/sites/all/modules/contrib/admin_menu -- admin_menu*
   $command = git_deploy_get_git_command(TRUE) . ' log --all --full-history --format=format:%H --max-count=' . (int) $limit . ' --glob=refs/' . $git_info['remote'] . ' -- ' . basename($git_info['remote']) . '* 2>&1';
   exec($command, $commits);
