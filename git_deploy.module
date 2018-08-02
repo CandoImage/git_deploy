@@ -522,6 +522,9 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
   }
   if (!empty($project_info_cache[$subtree_directory]['datestamp'])) {
     $info['datestamp'] = $project_info_cache[$subtree_directory]['datestamp'];
+    // We add an hour because there's usually a diff between commit & build of
+    // the package. And the update module relies on package time.
+    $info['datestamp'] += 3600;
   }
   if (!empty($project_info_cache[$subtree_directory]['project'])) {
     $info['project'] = $project_info_cache[$subtree_directory]['project'];
