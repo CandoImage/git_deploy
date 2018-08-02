@@ -572,9 +572,8 @@ function git_deploy_cron_queue_info() {
 function git_deploy_cron() {
   /** @var DrupalReliableQueueInterface $queue */
   $queue = DrupalQueue::get('git_deploy_update_version_info');
-  // If there are no more items left update the list again. Also update the list
-  // if the last updated was more than 24 hours ago.
-  if (!$queue->numberOfItems() || (variable_get('git_repo_last_queue_refresh', 0) - time()) / 3600 >= 24) {
+  // Update the list every 24 hours if there are no pending updates.
+  if (!$queue->numberOfItems() && (variable_get('git_repo_last_queue_refresh', 0) - time()) / 3600 >= 24) {
     git_deploy_creation_update_version_info_queue();
     variable_set('git_repo_last_queue_refresh', time());
   }
