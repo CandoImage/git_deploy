@@ -417,8 +417,16 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
           $version_found = FALSE;
           $commit_found = FALSE;
           foreach ($remote_refs as $remote_ref) {
+            $remote_commit = preg_replace('/\t.+$/', '', $remote_ref);
+            $command = git_deploy_get_git_command(TRUE) . ' log --format=format:%H --max-count=1 ' . $remote_commit . ' 2>&1';
+            exec($command, $exists_locally);
+            if (!empty($exists_locally)) {
+              $version_found = $remote_ref;
+              $commit_found = $remote_commit;
+              continue;
+            }
             foreach ($commits as $commit) {
-              if (stripos($remote_ref, $commit) !== FALSE) {
+              if (stripos($remote_commit, $commit) !== FALSE) {
                 $version_found = $remote_ref;
                 $commit_found = $commit;
                 continue;
