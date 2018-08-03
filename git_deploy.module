@@ -407,9 +407,9 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
       if (!$tag && $branch = git_deploy_get_branch($git_cache[$subtree_directory]['commit'], $git_dir, $git_cache[$subtree_directory]['remote'])) {
         $project_info_cache[$subtree_directory]['version'] = $branch . '-dev';
       }
-      // Still nothing - and a cando remote. Try to figure out last merge from
+      // Still nothing specific. Try to figure out last merge from
       // drupal org and base version on that.
-      if (empty($project_info_cache[$subtree_directory]['version'])) {
+      if (!$tag || empty($project_info_cache[$subtree_directory]['version'])) {
         $commits = git_deploy_get_remote_commits($git_cache[$subtree_directory]);
 
         // Try to find the commits in the remote branch refs.
