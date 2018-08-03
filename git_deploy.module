@@ -530,7 +530,8 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
     $info['project'] = $project_info_cache[$subtree_directory]['project'];
   }
   if (!empty($project_info_cache[$subtree_directory]['version'])) {
-    $info['version'] = $project_info_cache[$subtree_directory]['version'];
+    // Sometimes the version contains letters - we need them to be lower case.
+    $info['version'] = strtolower($project_info_cache[$subtree_directory]['version']);
   }
   return !empty($info['version']);
 }
