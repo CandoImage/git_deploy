@@ -20,7 +20,7 @@ function git_deploy_drush_command() {
   return $items;
 }
 
-function drush_git_deploy_fetch($module = NULL) {
+function drush_git_deploy_fetch() {
   $modules = system_list('module_enabled');
   $themes = system_list('theme');
 
@@ -30,7 +30,8 @@ function drush_git_deploy_fetch($module = NULL) {
     'operations' => array(),
   );
 
-  if (empty($module)) {
+  $dedicated_modules = func_get_args();
+  if (empty($dedicated_modules)) {
     foreach ($modules as $module) {
       $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($module));
     }
@@ -39,13 +40,15 @@ function drush_git_deploy_fetch($module = NULL) {
     }
   }
   else {
-    if (isset($modules[$module])) {
-      drush_log(dt('Found module @module - added to queue.', array('@module' => $module)), 'success');
-      $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($modules[$module]));
-    }
-    if (isset($themes[$module])) {
-      drush_log(dt('Found theme @module - added to queue.', array('@module' => $module)), 'success');
-      $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($themes[$module]));
+    foreach ($dedicated_modules as $module) {
+      if (isset($modules[$module])) {
+        drush_log(dt('Found module @module - added to queue.', array('@module' => $module)), 'success');
+        $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($modules[$module]));
+      }
+      if (isset($themes[$module])) {
+        drush_log(dt('Found theme @module - added to queue.', array('@module' => $module)), 'success');
+        $batch['operations'][] = array('drush_git_deploy_fetch_process_item', array($themes[$module]));
+      }
     }
   }
   drush_log(dt('Processing batch with !items items.', array('!items' => count($batch['operations']))), 'success');
