@@ -417,6 +417,10 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
           $version_found = FALSE;
           $commit_found = FALSE;
           foreach ($remote_refs as $remote_ref) {
+            // Check for wrong major version.
+            if (preg_match('/(\d*)\.x-\d*\./', $remote_ref, $major_version) && $major_version[1] != 7) {
+              continue;
+            }
             $remote_commit = preg_replace('/\t.+$/', '', $remote_ref);
             $command = git_deploy_get_git_command(TRUE) . ' log --format=format:%H --max-count=1 ' . $remote_commit . ' 2>&1';
             exec($command, $exists_locally);
