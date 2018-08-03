@@ -428,8 +428,8 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
           if ($version_found) {
             if (stripos($version_found, 'heads') !== FALSE) {
               $project_info_cache[$subtree_directory]['version'] = preg_replace('/^.+\/heads\/(.+)$/', '$1-dev', $version_found);
-              if ($project_info_cache[$subtree_directory]['version'] == 'master') {
-                $project_info_cache[$subtree_directory]['version'] = '7.x-1.x';
+              if ($project_info_cache[$subtree_directory]['version'] == 'master-dev') {
+                $project_info_cache[$subtree_directory]['version'] = '7.x-1.x-dev';
               }
             }
             elseif (stripos($version_found, 'tags') !== FALSE) {
