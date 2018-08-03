@@ -418,35 +418,34 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
           $commit_found = FALSE;
           foreach ($remote_refs as $remote_ref) {
             // Check for wrong major version.
-            if (preg_match('/(\d*)\.x-\d*\./', $remote_ref, $major_version) && $major_version[1] != 7) {
+            if (!preg_match('/(\d*)\.x-\d*\./', $remote_ref, $major_version) || $major_version[1] != 7) {
               continue;
             }
             $remote_commit = preg_replace('/\t.+$/', '', $remote_ref);
             $command = git_deploy_get_git_command(TRUE) . ' log --format=format:%H --max-count=1 ' . $remote_commit . ' 2>&1';
             exec($command, $exists_locally);
             if (!empty($exists_locally)) {
-              $version_found = $remote_ref;
-              $commit_found = $remote_commit;
-              continue;
+              $remote_ref_version = git_deploy_parse_ref_version($remote_ref);
+              if (!$version_found || version_compare($remote_ref_version, $version_found) > 0) {
+                $version_found = $remote_ref_version;
+                $commit_found = $remote_commit;
+              }
             }
-            foreach ($commits as $commit) {
-              if (stripos($remote_commit, $commit) !== FALSE) {
-                $version_found = $remote_ref;
-                $commit_found = $commit;
-                continue;
+            else {
+              foreach ($commits as $commit) {
+                if (stripos($remote_commit, $commit) !== FALSE) {
+                  $remote_ref_version = git_deploy_parse_ref_version($remote_ref);
+                  if (!$version_found || version_compare($remote_ref_version, $version_found) > 0) {
+                    $version_found = $remote_ref_version;
+                    $commit_found = $commit;
+                  }
+                  continue;
+                }
               }
             }
           }
           if ($version_found) {
-            if (stripos($version_found, 'heads') !== FALSE) {
-              $project_info_cache[$subtree_directory]['version'] = preg_replace('/^.+\/heads\/(.+)$/', '$1-dev', $version_found);
-              if ($project_info_cache[$subtree_directory]['version'] == 'master-dev') {
-                $project_info_cache[$subtree_directory]['version'] = '7.x-1.x-dev';
-              }
-            }
-            elseif (stripos($version_found, 'tags') !== FALSE) {
-              $project_info_cache[$subtree_directory]['version'] = preg_replace('/^.+\/tags\/(.+)$/', '$1', $version_found);
-            }
+            $project_info_cache[$subtree_directory]['version'] = $version_found;
             // Based on the commit we can get the date.
             if ($datestamp = git_deploy_get_datestamp($commit_found)) {
               $git_cache[$subtree_directory]['datestamp'] = $datestamp;
@@ -550,6 +549,19 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
     $info['version'] = preg_replace('/[^a-z0-9\-\_\.]/i', '', $info['version']);
   }
   return !empty($info['version']);
+}
+
+function git_deploy_parse_ref_version($ref_version) {
+  if (stripos($ref_version, 'heads') !== FALSE) {
+    $ref_version = preg_replace('/^.+\/heads\/(.+)$/', '$1-dev', $ref_version);
+    if ($ref_version == 'master-dev') {
+      $ref_version = '7.x-1.x-dev';
+    }
+  }
+  elseif (stripos($ref_version, 'tags') !== FALSE) {
+    $ref_version = preg_replace('/^.+\/tags\/(.+)$/', '$1', $ref_version);
+  }
+  return $ref_version;
 }
 
 function git_deploy_get_remote_commits($git_info, $limit = 500) {
