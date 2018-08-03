@@ -540,6 +540,10 @@ function git_deploy_fetch_subtree_info(&$info, $file, $type, $subtree_directory,
   if (!empty($project_info_cache[$subtree_directory]['version'])) {
     // Sometimes the version contains letters - we need them to be lower case.
     $info['version'] = strtolower($project_info_cache[$subtree_directory]['version']);
+    // We've also encountered the strangest version strings like
+    // refs/tags/7.x-1.5^{}
+    // So ensure we just return alphanumeric things.
+    $info['version'] = preg_replace('/[^a-z0-9\-\_\.]/i', '', $info['version']);
   }
   return !empty($info['version']);
 }
